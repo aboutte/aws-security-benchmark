@@ -33,7 +33,7 @@ AWS_CIS_BENCHMARK_VERSION = "1.1"
 
 # Would you like a HTML file generated with the result?
 # This file will be delivered using a signed URL.
-S3_WEB_REPORT = True
+S3_WEB_REPORT = False
 
 # Where should the report be delivered to?
 # Make sure to update permissions for the Lambda role if you change bucket name.
@@ -60,7 +60,7 @@ SCRIPT_OUTPUT_JSON = True
 # Would you like to supress all output except JSON result?
 # Can be used when you want to pipe result to another system.
 # If using S3 reporting, please enable SNS integration to get S3 signed URL
-OUTPUT_ONLY_JSON = False
+OUTPUT_ONLY_JSON = True
 
 
 # --- Control Parameters ---
@@ -77,6 +77,7 @@ CONTROL_1_1_DAYS = 0
 
 # --- Global ---
 IAM_CLIENT = boto3.client('iam')
+boto3.setup_default_session(region_name='us-gov-west-1')
 S3_CLIENT = boto3.client('s3')
 
 
@@ -790,9 +791,19 @@ def control_1_24_no_overly_permissive_policies():
         for n in statements:
             # a policy statement has to contain either an Action or a NotAction
             if 'Action' in n.keys() and n['Effect'] == 'Allow':
-                if ("'*'" in str(n['Action']) or str(n['Action']) == "*") and ("'*'" in str(n['Resource']) or str(n['Resource']) == "*"):
+                if ("'*'" in str(n['Action']) or str(n['Action']) == "*"):
                     result = False
-                    failReason = "Found full administrative policy"
+                    failReason = "Found Action that contains *"
+                    offenders.append(str(m['Arn']))
+            if 'Resource' in n.keys() and n['Effect'] == 'Allow':
+                if ("'*'" in str(n['Resource']) or str(n['Resource']) == "*"):
+                    result = False
+                    failReason = "Found Resource that contains *"
+                    offenders.append(str(m['Arn']))
+            if 'NotResource' in n.keys() and n['Effect'] == 'Allow':
+                if ("'*'" in str(n['NotResource'])):
+                    result = False
+                    failReason = "Found NotResource that contains *.  This policy needs to be manually reviewed.  It could be overly permissive still."
                     offenders.append(str(m['Arn']))
     return {'Result': result, 'failReason': failReason, 'Offenders': offenders, 'ScoredControl': scored, 'Description': description, 'ControlId': control}
 
@@ -926,7 +937,7 @@ def control_2_4_ensure_cloudtrail_cloudwatch_logs_integration(cloudtrails):
     for m, n in cloudtrails.iteritems():
         for o in n:
             try:
-                if "arn:aws:logs" in o['CloudWatchLogsLogGroupArn']:
+                if "arn:aws-us-gov:logs" in o['CloudWatchLogsLogGroupArn']:
                     pass
                 else:
                     result = False
@@ -1982,6 +1993,7 @@ def get_regions():
         TYPE: Description
     """
     client = boto3.client('ec2')
+    boto3.setup_default_session(region_name='us-gov-west-1')
     region_response = client.describe_regions()
     regions = [region['RegionName'] for region in region_response['Regions']]
     return regions
@@ -2397,7 +2409,7 @@ if __name__ == '__main__':
     except Exception as e:
         if "You must specify a region" in str(e):
             if profile_name == "":
-                boto3.setup_default_session(region_name='us-east-1')
+                boto3.setup_default_session(region_name='us-gov-west-1')
             else:
-                boto3.setup_default_session(profile_name=profile_name, region_name='us-east-1')
+                boto3.setup_default_session(profile_name=profile_name, region_name='us-gov-west-1')
     lambda_handler("test", "test")
